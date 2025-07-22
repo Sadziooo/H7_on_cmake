@@ -19,6 +19,7 @@ build/
 _build/
 out/
 *.cmake
+build.ninja
 
 # --- STM32 specific ---
 *.launch
@@ -27,7 +28,7 @@ out/
 *.srec
 
 # --- IDEs & Editors ---
-# VSCode
+.mxproject
 .vscode/
 
 # --- OS/Editor junk ---
