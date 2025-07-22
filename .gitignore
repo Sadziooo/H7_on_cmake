@@ -1,0 +1,42 @@
+# --- General ---
+*.o
+*.a
+*.so
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.d
+*.log
+
+# --- CMake ---
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+build/
+_build/
+out/
+*.cmake
+
+# --- STM32 specific ---
+*.launch
+*.svd
+*.ld
+*.srec
+
+# --- IDEs & Editors ---
+# VSCode
+.vscode/
+
+# --- OS/Editor junk ---
+*~
+*.swp
+*.tmp
+.DS_Store
+Thumbs.db
+
+# --- Debug ---
+.gdb_history
+*.bak
