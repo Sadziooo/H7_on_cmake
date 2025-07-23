@@ -24,7 +24,6 @@ build.ninja
 # --- STM32 specific ---
 *.launch
 *.svd
-*.ld
 *.srec
 
 # --- IDEs & Editors ---
