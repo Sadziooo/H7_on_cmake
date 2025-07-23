@@ -112,6 +112,7 @@
 #define ST7789_MADCTL_ML  0x10
 /* RGB/BGR Order ('0' = RGB, '1' = BGR) */
 #define ST7789_MADCTL_RGB 0x00
+#define ST7789_MADCTL_BGR 0x01
 
 #define ST7789_COLMOD_65K		0x50
 #define ST7789_COLMOD_262K	0x60
@@ -126,7 +127,7 @@
 #define LCD_OFFSET_X	0
 #define LCD_OFFSET_Y	0
 
-#define MAX_CHUNK 12800
+#define MAX_CHUNK 32000 
 
 //----------------------------------------------------------------------|
 //------------------------ VARIABLES ----------------------------<
@@ -156,6 +157,8 @@ uint8_t LCD_ID[3] = {0x00, 0x00, 0x00};
 
 static ST7789_IO_t* st7789_io = NULL;
 
+__attribute__((section(".framebuffer"))) uint16_t framebuffer[DISPLAY_W * DISPLAY_H];
+
 //----------------------------------------------------------------------|
 //---------------- FUNCTION PROROTYPES ------------------<
 //----------------------------------------------------------------------|
@@ -167,6 +170,7 @@ static void ST7789_data_bulk(uint8_t* data, size_t size);
 static void ST7789_send(uint16_t value);
 static uint8_t ST7789_read_id(uint8_t *rx, uint8_t length);
 static void ST7789_set_window(int x, int y, int width, int height);
+static uint16_t swap_color(uint16_t color);
 
 //----------------------------------------------------------------------|
 //------------------------------- CODE ----------------------------<
@@ -198,8 +202,10 @@ uint8_t ST7789_init(ST7789_IO_t *io_interface) {
 	ST7789_cmd(ST7789_SLPOUT);
 	st7789_io->delay_ms(120);
 	ST7789_cmd(ST7789_DISPON);
-	ST7789_fill_box_fast(0, 0, DISPLAY_W, DISPLAY_H, BLACK);
+	ST7789_clear();
 	st7789_io->set_bl(true);
+
+	memset(framebuffer, 0, sizeof(framebuffer));
 
 	return status;
 }
@@ -228,14 +234,24 @@ static void ST7789_data_bulk(uint8_t* data, size_t size) {
     st7789_io->set_dc(true);
     st7789_io->set_cs(false);
 
-    if (size >= 4 && st7789_io->spi_transmit_dma) {
+    if (st7789_io->spi_transmit_dma) {
 		spi_tx_done = false;
         st7789_io->spi_transmit_dma(data, size);
         while (!spi_tx_done) {
             __NOP();
         }
     } else {
-        st7789_io->spi_transmit(data, size);
+		while (size > 0) {
+			uint32_t to_send = (size > MAX_CHUNK) ? MAX_CHUNK : size;
+
+			st7789_io->set_cs(false);
+			st7789_io->spi_transmit(data, to_send);
+			st7789_io->set_cs(true);
+
+			data += to_send;
+			size -= to_send;
+		}
+        
     }
 
     st7789_io->set_cs(true);
@@ -283,54 +299,117 @@ static void ST7789_set_window(int x, int y, int width, int height) {
 	ST7789_data16(LCD_OFFSET_Y + y + height - 1);
 }
 
-void ST7789_fill_box(int x, int y, int width, int height, uint16_t color) {
-	ST7789_set_window(x, y, width, height);
-	ST7789_cmd(ST7789_RAMWR);
+static uint16_t swap_color(uint16_t color) {
+    return (color >> 8) | (color << 8);
+}
 
-	for (int i = 0; i < width * height; i++) {
-		ST7789_data16(color);
+// ====================================================================================================
+
+void ST7789_clear(void) {
+	memset(framebuffer, 0x00, sizeof(framebuffer));
+	ST7789_flush_to_display();
+}    
+
+void ST7789_flush_to_display(void) {
+    ST7789_set_window(0, 0, DISPLAY_W, DISPLAY_H);
+    ST7789_cmd(ST7789_RAMWR);
+    ST7789_data_bulk((uint8_t*)framebuffer, sizeof(framebuffer));
+}
+
+void ST7789_put_pixel(uint32_t x, uint32_t y, uint16_t color, bool flush) {
+	if (x < DISPLAY_W && y < DISPLAY_H) {
+        framebuffer[y * DISPLAY_W + x] = swap_color(color);
+		if (flush) ST7789_flush_to_display();
 	}
 }
 
-static uint16_t color_buffer[MAX_CHUNK];
-
-void ST7789_fill_box_fast(int x, int y, int width, int height, uint16_t color) {
-    uint32_t total_pixels = width * height;
-    uint16_t swapped_color = (color >> 8) | (color << 8); // zamiana bajtów na big endian (dla ST7789)
-
-    // Przygotuj bufor raz
-    for (int i = 0; i < MAX_CHUNK; i++) {
-        color_buffer[i] = swapped_color;
+void ST7789_fill_box(uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint16_t color, bool flush) {
+    if (x + width > DISPLAY_W || y + height > DISPLAY_H) {
+        return;
     }
 
-    ST7789_set_window(x, y, width, height);
-    ST7789_cmd(ST7789_RAMWR);
+    uint16_t swapped_color = swap_color(color);
 
-    // Wysyłaj bufor tyle razy, ile trzeba
-    while (total_pixels > 0) {
-        uint32_t to_send = (total_pixels > MAX_CHUNK) ? MAX_CHUNK : total_pixels;
-        ST7789_data_bulk((uint8_t*)color_buffer, to_send * sizeof(uint16_t));
-        total_pixels -= to_send;
+    for (uint16_t row = 0; row < height; row++) {
+        uint16_t* dst = &framebuffer[(y + row) * DISPLAY_W + x];
+        for (uint16_t col = 0; col < width; col++) {
+            dst[col] = swapped_color;
+        }
     }
+
+	if (flush) ST7789_flush_to_display();
 }
 
-void ST7789_draw_image(int x, int y, int width, int height, const uint8_t* data) {
-	ST7789_set_window(x, y, width, height);
+void ST7789_draw_line(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, bool flush)  {
+    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy, e2;
 
-	ST7789_cmd(ST7789_RAMWR);
-	for (int i = 0; i < width * height * 2; i++)
-		ST7789_data(data[i]);
+    while (1) {
+        ST7789_put_pixel(x0, y0, color, false);
+        if (x0 == x1 && y0 == y1) break;
+        e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+
+	if (flush) ST7789_flush_to_display();
 }
 
-void ST7789_draw_image_fast(int x, int y, int width, int height, const uint16_t* data) {
-	const int chunk_size = MAX_CHUNK; // Number of pixels per chunk
-	int pixels_remaining = width * height;
-	int pixels_sent = 0;
+void ST7789_draw_rectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, bool flush) {
+	ST7789_draw_line(x1, y1, x2, y1, color, false);
+	ST7789_draw_line(x1, y1, x1, y2, color, false);
+	ST7789_draw_line(x1, y2, x2, y2, color, false);
+	ST7789_draw_line(x2, y1, x2, y2, color, false);
+
+	if (flush) ST7789_flush_to_display();
+}
+
+void ST7789_draw_circle(uint16_t x0, uint16_t y0, uint8_t r, uint16_t color, bool flush) {
+    int f = 1 - r;
+    int dx = 1;
+    int dy = -2 * r;
+    int x = 0;
+    int y = r;
+
+    ST7789_put_pixel(x0, y0 + r, color, false);
+    ST7789_put_pixel(x0, y0 - r, color, false);
+    ST7789_put_pixel(x0 + r, y0, color, false);
+    ST7789_put_pixel(x0 - r, y0, color, false);
+
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            dy += 2;
+            f += dy;
+        }
+        x++;
+        dx += 2;
+        f += dx;
+
+        ST7789_put_pixel(x0 + x, y0 + y, color, false);
+        ST7789_put_pixel(x0 - x, y0 + y, color, false);
+        ST7789_put_pixel(x0 + x, y0 - y, color, false);
+        ST7789_put_pixel(x0 - x, y0 - y, color, false);
+
+        ST7789_put_pixel(x0 + y, y0 + x, color, false);
+        ST7789_put_pixel(x0 - y, y0 + x, color, false);
+        ST7789_put_pixel(x0 + y, y0 - x, color, false);
+        ST7789_put_pixel(x0 - y, y0 - x, color, false);
+    }
+
+	if (flush) ST7789_flush_to_display();
+}
+
+void ST7789_draw_image(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint16_t* data) {
+	const uint16_t chunk_size = MAX_CHUNK; // Number of pixels per chunk
+	uint16_t pixels_remaining = width * height;
+	uint16_t pixels_sent = 0;
 
 	while (pixels_remaining > 0) {
-		int chunk_pixels = (pixels_remaining < chunk_size) ? pixels_remaining : chunk_size;
-		int chunk_rows = chunk_pixels / width;
-		int chunk_cols = (chunk_pixels % width == 0) ? width : (chunk_pixels % width);
+		uint16_t chunk_pixels = (pixels_remaining < chunk_size) ? pixels_remaining : chunk_size;
+		uint16_t chunk_rows = chunk_pixels / width;
+		uint16_t chunk_cols = (chunk_pixels % width == 0) ? width : (chunk_pixels % width);
 
 		ST7789_set_window(x + (pixels_sent % width), y + (pixels_sent / width), chunk_cols, chunk_rows);
 		ST7789_cmd(ST7789_RAMWR);
@@ -338,106 +417,6 @@ void ST7789_draw_image_fast(int x, int y, int width, int height, const uint16_t*
 
 		pixels_remaining -= chunk_pixels;
 		pixels_sent += chunk_pixels;
-	}
-}
-
-void ST7789_put_pixel(int x, int y, uint16_t color) {
-	ST7789_fill_box_fast(x, y, 1, 1, color);
-}
-
-void ST7789_draw_line(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color) {
-	uint16_t swap;
-    uint16_t steep = ABS(y1 - y0) > ABS(x1 - x0);
-    if (steep) {
-		swap = x0;
-		x0 = y0;
-		y0 = swap;
-
-		swap = x1;
-		x1 = y1;
-		y1 = swap;
-        //_swap_int16_t(x0, y0);
-        //_swap_int16_t(x1, y1);
-    }
-
-    if (x0 > x1) {
-		swap = x0;
-		x0 = x1;
-		x1 = swap;
-
-		swap = y0;
-		y0 = y1;
-		y1 = swap;
-        //_swap_int16_t(x0, x1);
-        //_swap_int16_t(y0, y1);
-    }
-
-    int16_t dx, dy;
-    dx = x1 - x0;
-    dy = ABS(y1 - y0);
-
-    int16_t err = dx / 2;
-    int16_t ystep;
-
-    if (y0 < y1) {
-        ystep = 1;
-    } else {
-        ystep = -1;
-    }
-
-    for (; x0<=x1; x0++) {
-        if (steep) {
-        	ST7789_put_pixel(y0, x0, color);
-        } else {
-        	ST7789_put_pixel(x0, y0, color);
-        }
-        err -= dy;
-        if (err < 0) {
-            y0 += ystep;
-            err += dx;
-        }
-    }
-}
-
-void ST7789_draw_rectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color) {
-	ST7789_draw_line(x1, y1, x2, y1, color);
-	ST7789_draw_line(x1, y1, x1, y2, color);
-	ST7789_draw_line(x1, y2, x2, y2, color);
-	ST7789_draw_line(x2, y1, x2, y2, color);
-}
-
-void ST7789_draw_circle(uint16_t x0, uint16_t y0, uint8_t r, uint16_t color) {
-	int16_t f = 1 - r;
-	int16_t ddF_x = 1;
-	int16_t ddF_y = -2 * r;
-	int16_t x = 0;
-	int16_t y = r;
-
-
-	ST7789_put_pixel(x0, y0 + r, color);
-	ST7789_put_pixel(x0, y0 - r, color);
-	ST7789_put_pixel(x0 + r, y0, color);
-	ST7789_put_pixel(x0 - r, y0, color);
-
-	while (x < y) {
-		if (f >= 0) {
-			y--;
-			ddF_y += 2;
-			f += ddF_y;
-		}
-		x++;
-		ddF_x += 2;
-		f += ddF_x;
-
-		ST7789_put_pixel(x0 + x, y0 + y, color);
-		ST7789_put_pixel(x0 - x, y0 + y, color);
-		ST7789_put_pixel(x0 + x, y0 - y, color);
-		ST7789_put_pixel(x0 - x, y0 - y, color);
-
-		ST7789_put_pixel(x0 + y, y0 + x, color);
-		ST7789_put_pixel(x0 - y, y0 + x, color);
-		ST7789_put_pixel(x0 + y, y0 - x, color);
-		ST7789_put_pixel(x0 - y, y0 - x, color);
 	}
 }
 
@@ -487,4 +466,3 @@ void ST7789_write_string(uint16_t x, uint16_t y, const char *str, FontDef font, 
 		str++;
 	}
 }
-

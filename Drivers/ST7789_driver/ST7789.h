@@ -71,14 +71,14 @@ typedef struct {
 
 uint8_t ST7789_init(ST7789_IO_t *io_interface);
 void ST7789_SPI_TxCpltCallback(void);
-void ST7789_fill_box(int x, int y, int width, int height, uint16_t color);
-void ST7789_fill_box_fast(int x, int y, int width, int height, uint16_t color);
-void ST7789_put_pixel(int x, int y, uint16_t color);
-void ST7789_draw_image(int x, int y, int width, int height, const uint8_t* data);
-void ST7789_draw_image_fast(int x, int y, int width, int height, const uint16_t* data);
-void ST7789_draw_line(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
-void ST7789_draw_rectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
-void ST7789_draw_circle(uint16_t x0, uint16_t y0, uint8_t r, uint16_t color);
+void ST7789_flush_to_display(void);
+void ST7789_clear(void);
+void ST7789_put_pixel(uint32_t x, uint32_t y, uint16_t color, bool flush);
+void ST7789_fill_box(uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint16_t color, bool flush);
+void ST7789_draw_line(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, bool flush);
+void ST7789_draw_rectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, bool flush);
+void ST7789_draw_circle(uint16_t x0, uint16_t y0, uint8_t r, uint16_t color, bool flush);
+void ST7789_draw_image(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint16_t* data);
 void ST7789_write_char(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color, uint16_t bgcolor);
 void ST7789_write_string(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor);
 

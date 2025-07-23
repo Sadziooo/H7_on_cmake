@@ -179,30 +179,39 @@ void StartLCDTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
 
-
-
   if(0 == ST7789_init(&st7789_hal_io)) {
-    ST7789_draw_circle(100, 100, 10, WHITE);
-    ST7789_draw_circle(100, 100, 20, RED);
-    ST7789_draw_circle(100, 100, 30, GREEN);
-    ST7789_draw_circle(100, 100, 40, BLUE);
-    ST7789_draw_circle(100, 100, 50, YELLOW);
-    ST7789_draw_circle(100, 100, 60, MAGENTA);
-    ST7789_draw_circle(100, 100, 70, CYAN);
+    ST7789_draw_circle(30, 30, 10, WHITE, true);
   }
-  osDelay(1000);
+
   /* Infinite loop */
   for(;;)
   {
-    ST7789_fill_box_fast(0, 0, DISPLAY_W, DISPLAY_H, BLACK);
-    ST7789_draw_circle(100, 100, 10, WHITE);
-    ST7789_draw_circle(100, 100, 20, RED);
-    ST7789_draw_circle(100, 100, 30, GREEN);
-    ST7789_draw_circle(100, 100, 40, BLUE);
-    ST7789_draw_circle(100, 100, 50, YELLOW);
-    ST7789_draw_circle(100, 100, 60, MAGENTA);
-    ST7789_draw_circle(100, 100, 70, CYAN);
-    osDelay(200);
+    osDelay(1000);
+
+    ST7789_clear();
+    ST7789_draw_line(180, 0, 180+30, DISPLAY_H, WHITE, false);
+    ST7789_draw_line(220, 0, 220+30, DISPLAY_H, WHITE, false);
+    ST7789_draw_line(260, 0, 260+30, DISPLAY_H, WHITE, false);
+    ST7789_draw_circle(100, 100, 10, WHITE, false);
+    ST7789_draw_circle(100, 100, 20, RED, false);
+    ST7789_draw_circle(100, 100, 30, GREEN, false);
+    ST7789_draw_circle(100, 100, 40, BLUE, false);
+    ST7789_draw_circle(100, 100, 50, YELLOW, false);
+    ST7789_draw_circle(100, 100, 60, MAGENTA, false);
+    ST7789_draw_circle(100, 100, 70, CYAN, false);
+    ST7789_fill_box(40, 200, 30, 30, WHITE, false);
+    ST7789_fill_box(70, 200, 30, 30, RED, false);
+    ST7789_fill_box(100, 200, 30, 30, GREEN, false);
+    ST7789_fill_box(130, 200, 30, 30, BLUE, false);
+    ST7789_flush_to_display();
+    
+    osDelay(1000);
+
+    ST7789_clear();
+    ST7789_write_string(20, 30, "DUPECZEK", Font_16x26, WHITE, BLACK);
+    ST7789_write_string(60, 60, "DUPECZEK", Font_16x26, RED, BLACK);
+    ST7789_write_string(100, 90, "DUPECZEK", Font_16x26, GREEN, BLACK);
+    ST7789_write_string(140, 120, "DUPECZEK", Font_16x26, BLUE, BLACK);
   }
   /* USER CODE END StartDefaultTask */
 }
